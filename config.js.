@@ -1,0 +1,7 @@
+module.exports = {
+  botName: "SUPREME KAI MD",
+  ownerName: "Takunda",
+  mode: "public",
+  prefix: ".",
+  version: "1.0.0"
+};
