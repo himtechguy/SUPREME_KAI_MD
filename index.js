@@ -7,15 +7,23 @@ const {
 
 const pino = require("pino");
 const qrcode = require("qrcode-terminal");
+const config = require("./config");
+
+function isOwner(jid) {
+  const number = jid?.split("@")[0].split(":")[0];
+
+  return config.ownerNumbers.includes(number);
+}
 
 async function startBot() {
-  const { state, saveCreds } = await useMultiFileAuthState("./session");
+  const { state, saveCreds } =
+    await useMultiFileAuthState("./session");
 
   const socket = makeWASocket({
     auth: state,
     logger: pino({ level: "silent" }),
     printQRInTerminal: false,
-    browser: ["SUPREME KAI MD", "Chrome", "1.0.0"]
+    browser: [config.botName, "Chrome", config.version]
   });
 
   socket.ev.on("creds.update", saveCreds);
@@ -24,24 +32,30 @@ async function startBot() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      console.log("Scan this QR code using WhatsApp > Linked devices:");
+      console.log("Scan QR using WhatsApp > Linked devices:");
       qrcode.generate(qr, { small: true });
     }
 
     if (connection === "connecting") {
-      console.log("SUPREME KAI MD is connecting...");
+      console.log(`${config.botName} is connecting...`);
     }
 
     if (connection === "open") {
-      console.log("SUPREME KAI MD is connected!");
-      console.log("Test mode: online. No commands enabled.");
+      console.log("================================");
+      console.log(`WELCOME TO ${config.botName}`);
+      console.log("WhatsApp connection successful!");
+      console.log("Bot mode:", config.mode);
+      console.log("Prefix:", config.prefix);
+      console.log("Channel:", config.channelLink);
+      console.log("================================");
     }
 
     if (connection === "close") {
-      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const statusCode =
+        lastDisconnect?.error?.output?.statusCode;
 
       if (statusCode === DisconnectReason.loggedOut) {
-        console.log("Session logged out. A new QR scan is required.");
+        console.log("Logged out. A new QR scan is required.");
         return;
       }
 
@@ -53,10 +67,17 @@ async function startBot() {
   socket.ev.on("messages.upsert", ({ messages }) => {
     for (const message of messages) {
       if (!message.key.fromMe && message.message) {
-        console.log("Message received from:", message.key.remoteJid);
+        const sender = message.key.remoteJid;
+        const owner = isOwner(sender);
+
+        console.log("New message received");
+        console.log("Sender:", sender);
+        console.log("Owner:", owner ? "YES" : "NO");
       }
     }
   });
 }
 
-startBot().catch(console.error);
+startBot().catch((error) => {
+  console.error("Bot startup failed:", error);
+});
