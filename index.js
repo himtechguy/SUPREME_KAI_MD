@@ -24,7 +24,6 @@ function getMessageText(message) {
   if (!message?.message) return null;
 
   const content = message.message;
-
   if (content.conversation) return content.conversation;
   if (content.extendedTextMessage?.text) return content.extendedTextMessage.text;
   if (content.imageMessage?.caption) return content.imageMessage.caption;
@@ -33,7 +32,6 @@ function getMessageText(message) {
   if (content.documentWithCaptionMessage?.message?.documentMessage?.caption) {
     return content.documentWithCaptionMessage.message.documentMessage.caption;
   }
-  if (content.stickerMessage?.fileSha256) return "";
 
   return null;
 }
@@ -47,7 +45,6 @@ async function restoreSession() {
   }
 
   const credsPath = path.join(SESSION_DIR, "creds.json");
-
   if (fs.existsSync(credsPath)) {
     console.log("Existing WhatsApp session found.");
     return;
@@ -57,26 +54,16 @@ async function restoreSession() {
     throw new Error("Invalid SESSION_ID format.");
   }
 
-  const encoded = sessionId.slice(SESSION_PREFIX.length);
-  const zipBuffer = Buffer.from(encoded, "base64");
-
-  if (!zipBuffer.length) {
-    throw new Error("SESSION_ID is empty or invalid.");
-  }
+  const zipBuffer = Buffer.from(sessionId.slice(SESSION_PREFIX.length), "base64");
+  if (!zipBuffer.length) throw new Error("SESSION_ID is empty or invalid.");
 
   console.log("Restoring WhatsApp session...");
-
   await fs.promises.mkdir(SESSION_DIR, { recursive: true });
-
   const archive = await unzipper.Open.buffer(zipBuffer);
 
   for (const entry of archive.files) {
     const destination = path.resolve(SESSION_DIR, entry.path);
-
-    if (
-      destination !== SESSION_DIR &&
-      !destination.startsWith(SESSION_DIR + path.sep)
-    ) {
+    if (destination !== SESSION_DIR && !destination.startsWith(SESSION_DIR + path.sep)) {
       throw new Error("Unsafe session archive entry.");
     }
 
@@ -85,25 +72,14 @@ async function restoreSession() {
       continue;
     }
 
-    await fs.promises.mkdir(path.dirname(destination), {
-      recursive: true
-    });
-
-    await pipeline(
-      entry.stream(),
-      fs.createWriteStream(destination)
-    );
+    await fs.promises.mkdir(path.dirname(destination), { recursive: true });
+    await pipeline(entry.stream(), fs.createWriteStream(destination));
   }
 
   if (!fs.existsSync(credsPath)) {
     throw new Error("Session archive does not contain creds.json.");
   }
-
   console.log("WhatsApp session restored successfully.");
-}
-
-function formatCommandUsage(commandName, description, example) {
-  return `*${commandName}*\n${description}\nExample: ${example}`;
 }
 
 async function handleCommand(socket, message) {
@@ -112,15 +88,13 @@ async function handleCommand(socket, message) {
   const sender = message.key.remoteJid;
   const senderNumber = message.key.participant || sender;
   const messageText = getMessageText(message);
-
-  if (!messageText || typeof messageText !== "string") return;
+  if (typeof messageText !== "string") return;
 
   const trimmedText = messageText.trim();
   if (!trimmedText.startsWith(config.prefix)) return;
 
   const body = trimmedText.slice(config.prefix.length).trim();
   if (!body) return;
-
   const [command, ...args] = body.split(/\s+/);
   const commandName = command.toLowerCase();
   const extra = args.join(" ");
@@ -132,48 +106,53 @@ async function handleCommand(socket, message) {
       `${config.prefix}ping - Check if the bot is online`,
       `${config.prefix}status - View bot status`,
       `${config.prefix}help - Show this menu`,
-      `${config.prefix}owner - Show owner info (owner only)`
+      `${config.prefix}owner - Show owner info (owner only)`,
+      `${config.prefix}session - Session generator instructions (owner only)`
     ];
-
-    await socket.sendMessage(sender, {
-      text: lines.join("\n")
-    }, { quoted: message });
+    await socket.sendMessage(sender, { text: lines.join("\n") }, { quoted: message });
     return;
   }
 
   if (commandName === "ping") {
-    await socket.sendMessage(sender, {
-      text: `Pong! ${config.botName} is online.`
-    }, { quoted: message });
+    await socket.sendMessage(sender, { text: `Pong! ${config.botName} is online.` }, { quoted: message });
     return;
   }
 
   if (commandName === "status") {
-    const ownerOnly = isOwner(senderNumber) ? "Yes" : "No";
     const lines = [
       `${config.botName} status`,
       `Mode: ${config.mode}`,
       `Prefix: ${config.prefix}`,
-      `Owner: ${ownerOnly}`,
+      `Owner: ${isOwner(senderNumber) ? "Yes" : "No"}`,
       `Chat: ${sender}`
     ];
-
-    await socket.sendMessage(sender, {
-      text: lines.join("\n")
-    }, { quoted: message });
+    await socket.sendMessage(sender, { text: lines.join("\n") }, { quoted: message });
     return;
   }
 
   if (commandName === "owner") {
     if (!isOwner(senderNumber)) {
-      await socket.sendMessage(sender, {
-        text: "Only the bot owner can use this command."
-      }, { quoted: message });
+      await socket.sendMessage(sender, { text: "Only the bot owner can use this command." }, { quoted: message });
       return;
     }
-
     await socket.sendMessage(sender, {
       text: `Owner: ${config.ownerName}\nContact: ${config.ownerNumbers.join(", ")}`
+    }, { quoted: message });
+    return;
+  }
+
+  if (commandName === "session") {
+    if (!isOwner(senderNumber)) {
+      await socket.sendMessage(sender, { text: "Only the bot owner can use this command." }, { quoted: message });
+      return;
+    }
+    await socket.sendMessage(sender, {
+      text: [
+        "Generate a session for your own WhatsApp account using the local session generator.",
+        `Run \`npm run session-site\` on your computer, then open ${config.sessionGeneratorUrl} in a browser on that same computer.`,
+        "Scan the QR code with WhatsApp > Linked devices and download the generated SESSION_ID.",
+        "Set SESSION_ID in your bot host's environment variables. Never share or post it; it grants access to your linked account."
+      ].join("\n")
     }, { quoted: message });
     return;
   }
@@ -181,14 +160,11 @@ async function handleCommand(socket, message) {
   if (commandName === "echo") {
     if (!extra) {
       await socket.sendMessage(sender, {
-        text: formatCommandUsage("echo", "Repeat a message back to you.", `${config.prefix}echo hello`)
+        text: `*echo*\nRepeat a message back to you.\nExample: ${config.prefix}echo hello`
       }, { quoted: message });
       return;
     }
-
-    await socket.sendMessage(sender, {
-      text: extra
-    }, { quoted: message });
+    await socket.sendMessage(sender, { text: extra }, { quoted: message });
     return;
   }
 
@@ -199,10 +175,7 @@ async function handleCommand(socket, message) {
 
 async function startBot() {
   await restoreSession();
-
-  const { state, saveCreds } =
-    await useMultiFileAuthState(SESSION_DIR);
-
+  const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
   const socket = makeWASocket({
     auth: state,
     logger: pino({ level: "silent" }),
@@ -211,19 +184,13 @@ async function startBot() {
   });
 
   socket.ev.on("creds.update", saveCreds);
-
   socket.ev.on("connection.update", (update) => {
     const { connection, lastDisconnect, qr } = update;
-
     if (qr) {
       console.log("Scan QR using WhatsApp > Linked devices:");
       qrcode.generate(qr, { small: true });
     }
-
-    if (connection === "connecting") {
-      console.log(`${config.botName} is connecting...`);
-    }
-
+    if (connection === "connecting") console.log(`${config.botName} is connecting...`);
     if (connection === "open") {
       console.log("================================");
       console.log(`WELCOME TO ${config.botName}`);
@@ -233,33 +200,25 @@ async function startBot() {
       console.log("Channel:", config.channelLink);
       console.log("================================");
     }
-
     if (connection === "close") {
       const statusCode = lastDisconnect?.error?.output?.statusCode;
-
       if (statusCode === DisconnectReason.loggedOut) {
         console.log("Logged out. A new session is required.");
         return;
       }
-
       console.log("Connection closed. Reconnecting...");
-      setTimeout(() => {
-        startBot().catch(console.error);
-      }, 5000);
+      setTimeout(() => startBot().catch(console.error), 5000);
     }
   });
 
   socket.ev.on("messages.upsert", async ({ messages }) => {
     for (const message of messages) {
       if (message.key.fromMe || !message.message) continue;
-
       const sender = message.key.remoteJid;
       const owner = isOwner(message.key.participant || sender);
-
       console.log("New message received");
       console.log("Sender:", sender);
       console.log("Owner:", owner ? "YES" : "NO");
-
       try {
         await handleCommand(socket, message);
       } catch (error) {
@@ -269,90 +228,8 @@ async function startBot() {
   });
 }
 
-startBot().catch((error) => {
-  console.error("Bot startup failed:", error);
-});
-
-"use strict";
-
-module.exports = {
-  isOwner,
-  getMessageText,
-  handleCommand
-};
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+if (require.main === module) {
+  startBot().catch((error) => console.error("Bot startup failed:", error));
+}
+
+module.exports = { isOwner, getMessageText, handleCommand, restoreSession };
