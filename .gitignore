@@ -1,4 +1,6 @@
 node_modules/
 session/
+session-*/
 .env
 npm-debug.log
+*.zip
